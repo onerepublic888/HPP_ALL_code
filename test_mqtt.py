@@ -26,7 +26,7 @@ switch_ls = ['1o', '2o', '3o']
 d01, d02, d03, d12, d13, d23 = [], [], [], [], [], []
 global D0_ls
 global D1_ls
-global D1_ls
+global D2_ls
 D0_ls, D1_ls, D2_ls = [],[],[]
 
 global calibrate
@@ -49,62 +49,66 @@ def on_message(client, userdata, msg):       # Get UWB data via MQTT from RPI4
 
 def get_anc_pos(UWB_data, calibrate, anchor_measure_dis, localization):  # parse UWB six distance data and send UWB switching Tag to Anchor command 
     dis0,dis1,dis2,dis3,tag = UWB_data[0], UWB_data[1], UWB_data[2], UWB_data[3], UWB_data[4]
-    if(tag ==1 and len(d01) < m  and dis0!=0 and dis1 == 0 and dis2 == 0 and dis3==0):
-        print('dis[01]: ', dis0)
-        d01.append(dis0)
 
-    elif(tag ==2 and len(d02) < m and dis0!=0 and dis1 == 0 and dis2 == 0 and dis3==0):
-        print('dis[02]: ', dis0)
-        d02.append(dis0)
+    if( dis0!=0 and dis1 == 0 and dis2 == 0 and dis3 == 0):
+        if(tag == 1 and len(d01) < m):
+            print('dis[01]: ', dis0)
+            d01.append(dis0)
 
-    elif(tag ==3 and len(d03) < m and dis0!=0 and dis1 == 0 and dis2 == 0 and dis3==0):
-        print('dis[03]: ', dis0)
-        d03.append(dis0)
+        elif(tag == 2 and len(d02) < m):
+            print('dis[02]: ', dis0)
+            d02.append(dis0)
 
-    elif(len(d01) >= m and len(d02) >= m and len(d03) >= m and dis0!= 0 and dis1 == 0 and dis2 == 0 and dis3==0 and len(D0_ls)<1):
-        print('1A3T done: ', len(d01), len(d02), len(d03))
-        dis_1state = np.vstack((np.vstack((np.array(d01), np.array(d02))), np.array(d03)))
-        D0_ls.append(dis_1state)
-        print('D0_ls: ',D0_ls)
-        np.savez('UWB_dis_1state.npz', dis_1state = dis_1state)
-        print('sent switch 1o')
+        elif(tag == 3 and len(d03) < m):
+            print('dis[03]: ', dis0)
+            d03.append(dis0)
+
+        elif(len(d01) >= m and len(d02) >= m and len(d03) >= m  and len(D0_ls)<1):
+            print('1A3T done: ', len(d01), len(d02), len(d03))
+            dis_1state = np.vstack((np.vstack((np.array(d01), np.array(d02))), np.array(d03)))
+            D0_ls.append(dis_1state)
+            print('D0_ls: ',D0_ls)
+            np.savez('UWB_dis_1state.npz', dis_1state = dis_1state)
+            print('sent switch 1o')
+
+        elif(len(D0_ls) >= 1):
+            client.publish(topic_2, json.dumps(switch_ls[0]))
+
+    elif(dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):
+        if(tag ==2 and len(d12)< m ):
+            print('dis[12]: ', dis1)
+            d12.append(dis1)
+
+        elif(tag ==3 and len(d13)< m ):
+            print('dis[13]: ', dis1)
+            d13.append(dis1)
+
+        elif(len(d12) >= m and len(d13) >= m and len(D1_ls)<1):
+            print('2A2T done: ', len(d12), len(d13))
+            dis_2state = np.vstack((np.array(d12), np.array(d13)))
+            D1_ls.append(dis_2state)
+            print('D1_ls: ',D1_ls)
+            np.savez('UWB_dis_2state.npz', dis_2state = dis_2state)      
+            print('sent switch 2o')
+
+        elif(len(D1_ls)>=1):
+            client.publish(topic_2, json.dumps(switch_ls[1]))
         
-    elif(len(D0_ls)>=1 and dis0!= 0 and dis1 == 0 and dis2 == 0 and dis3==0):
-        client.publish(topic_2, json.dumps(switch_ls[0]))
+    elif(dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0):
+        if(tag ==3 and len(d23)< m ):
+            print('dis[23]: ', dis2)
+            d23.append(dis2)
 
-    elif(tag ==2 and len(d12)< m and dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):
-        print('dis[12]: ', dis1)
-        d12.append(dis1)
+        elif(len(d23) >= m and len(D2_ls)<1 ):
+            print('3A1T done: ', len(d23))
+            D2_ls.append(d23)
+            print('D2_ls: ',D2_ls)
+            np.savez('UWB_dis_3state.npz', dis_3state = d23)
+            print('sent switch 3o')
         
-    elif(tag ==3 and len(d13)< m and dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):
-        print('dis[13]: ', dis1)
-        d13.append(dis1)
-        
-    elif(len(d12) >= m and len(d13) >= m  and dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0 and len(D1_ls)<1):
-        print('2A2T done: ', len(d12), len(d13))
-        dis_2state = np.vstack((np.array(d12), np.array(d13)))
-        D1_ls.append(dis_2state)
-        print('D1_ls: ',D1_ls)
-        np.savez('UWB_dis_2state.npz', dis_2state = dis_2state)      
-        print('sent switch 2o')
-
-    elif(len(D1_ls)>=1 and dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):
-        client.publish(topic_2, json.dumps(switch_ls[1]))
-                                       
-    elif(tag ==3 and len(d23)< m and dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0):
-        print('dis[23]: ', dis2)
-        d23.append(dis2)
-        
-    elif(len(d23) >= m and dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0 and len(D2_ls)<1 ):
-        print('3A1T done: ', len(d23))
-        D2_ls.append(d23)
-        print('D2_ls: ',D2_ls)
-        np.savez('UWB_dis_3state.npz', dis_3state = d23)
-        print('sent switch 3o')
-
-    elif(len(D2_ls)>=1 and dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0 ):
-        client.publish(topic_2, json.dumps(switch_ls[2]))      
-
+        elif(len(D2_ls)>=1):
+            client.publish(topic_2, json.dumps(switch_ls[2]))  
+                                        
     elif(dis0 != 0 and dis1 != 0 and dis2 != 0 and dis3 != 0 ): #If all UWB have switch to anchor 
         print('All HPP device have change to Anchor!')
         dis0_data, dis1_data, dis2_data = np.load('UWB_dis_1state.npz'), np.load('UWB_dis_2state.npz'), np.load('UWB_dis_3state.npz')
