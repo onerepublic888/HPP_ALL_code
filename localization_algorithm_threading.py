@@ -3,24 +3,6 @@ from scipy import optimize
 import sys, collections, time
 from scipy.optimize import lsq_linear, root, minimize
 
-def root_method(distances_to_anchors, anchor_positions):
-    # print('In theroot of ls_pos_2: ', ls_pos_2)    #put in intial guess
-    tag_pos = lsq_method(distances_to_anchors, anchor_positions)
-    sol = root(lambda pos: np.linalg.norm(pos - anchor_positions, axis=1) - distances_to_anchors, tag_pos, method='lm')
-    return sol.x
-
-
-def simple_Kalman_filter(x, p, Q, R, m): #x: 前一值,p: covariance, Q: system noise ,R: 量測noise,m: 量測值 ,k: k gain
-
-    x = x               # predicted x, assumed static transfer
-    p = p + Q           # predicted p
-    k = p / (p + R)     # k factor
-    x = x + k * (m - x) # updated x
-    p = (1. - k) * p     # updated p
-    return x, p, k
-
-
-
 def lsq_method(distances_to_anchors, anchor_positions):
     distances_to_anchors, anchor_positions = np.array(distances_to_anchors), np.array(anchor_positions)
     if not np.all(distances_to_anchors):

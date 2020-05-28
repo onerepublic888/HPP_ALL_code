@@ -7,6 +7,9 @@ import numpy as np
 import sys, os, json, collections, time
 from localization_algorithm_threading import costfun_method
 from caliculate_error_threading import cal_error, cal_Anc_pos, remove_dis_err
+from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
+from filterpy.common import Q_discrete_white_noise, Saver
+from filterpy.kalman import KalmanFilter
 
 host = '192.168.50.138'      #This computer
 # host = '192.168.50.202'
@@ -19,9 +22,9 @@ topic_4 = 'power_reset'
 topic_5 = 'mac'
 
 
-tag_pos_data = collections.deque(maxlen=10000)
-dis_array_data = collections.deque(maxlen=10000)
-mqtt_data = collections.deque(maxlen=10000)
+tag_pos_data = collections.deque(maxlen=10)
+dis_array_data = collections.deque(maxlen=10)
+mqtt_data = collections.deque(maxlen=10)
 switch_ls = ['1o', '2o', '3o']
 d01, d02, d03, d12, d13, d23 = [], [], [], [], [], []
 global D0_ls
@@ -153,9 +156,9 @@ client.on_message = on_message
 client.loop_start()
 while True:
     choise = int(input('If Calibrate UWB--> input 0,If anchor distance measure input 1: , start localization 2: '))
+    m = int(input('Input measure times: '))
     if (choise == 0 ):
         client.publish(topic_4, json.dumps('low'))
-        m = int(input('Input measure times: '))
         time.sleep(1)
         client.publish(topic_4, json.dumps('high'))
         print('Reset')
@@ -165,7 +168,6 @@ while True:
 
     elif(choise == 1):
         client.publish(topic_4, json.dumps('low'))
-        m = int(input('Input measure times: '))
         time.sleep(1)
         client.publish(topic_4, json.dumps('high'))
         print('Reset')
@@ -193,6 +195,14 @@ if localization == True:
 else:
     measure_done = False
     
+
+f = KalmanFilter (dim_x=2, dim_z=1)
+f.F = np.array([[1.,1.],[0.,1.]])
+f.H = np.array([[1.,0.]])              
+f.P = np.array([[1.,    0.], [   0., 1.] ])
+f.R = np.array([[0.1**2]])    # uwb dis std **2
+saver_kf = Saver(f)
+last_data_time = time.time()
 while True:
     if len(dis_array_data) > 0:
         UWB_data = dis_array_data.popleft()
@@ -203,18 +213,31 @@ while True:
             anc_pos = anc_pos_data['anc_pos']
         else:
             # print(UWB_data)
+            
             if(UWB_data[0] !=0 and UWB_data[1] !=0 and UWB_data[2] !=0 and UWB_data[3] !=0 ):
                 dis_array = np.array([UWB_data[0], UWB_data[1], UWB_data[2], UWB_data[3]])
                 # print(dis_array)
-                Q = np.array((0.001, 0.001, 0.001))    # system noise (variance)
-                R = np.array((0.0001, 0.0001, 0.01))              # measurement noise (variance)
-                last_x, last_p = np.zeros_like(R), np.ones_like(Q) *1.
-                
+                origin_tag_pos = costfun_method(dis_array, anc_pos)
+                now_time = time.time()
 
-                tag_pos = costfun_method(dis_array, anc_pos)
-                tag_pos_data.append(tag_pos)
-                print(anc_pos)
-                print(tag_pos)
+                dt = now_time - last_data_time
+                # dt = 0.1
+                f.x = np.array([origin_tag_pos[2], 0])    #  position,velocity
+                f.F = np.array([[1, dt], [0, 1]])
+                f.predict()
+                # f.Q = Q_discrete_white_noise(2, dt=dt,var=2e-5, block_size=2)
+                f.Q = Q_discrete_white_noise(dim=2, dt=1, var=1e-4)   
+                f.update(z = origin_tag_pos[2])
+                f.predict(F = np.array([[1, dt], [0, 1]]))
+                saver_kf.save()
+                z_predict = np.around(np.array(saver_kf.x)[-1,0], 2)
+
+                predict_tag_pos = np.append(np.delete(origin_tag_pos, 2), z_predict)
+                print('origin_tag_pos: ', origin_tag_pos)
+                print('predict_tag_pos: ', predict_tag_pos)
+                last_data_time = time.time()
+                tag_pos_data.append(predict_tag_pos)
+
             
     else:
         print('len(dis_array_data) == 0')
