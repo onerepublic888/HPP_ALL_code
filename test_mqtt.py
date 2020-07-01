@@ -13,34 +13,49 @@ from filterpy.common import Q_discrete_white_noise, Saver
 from filterpy.kalman import KalmanFilter
 import threading
 import json
-# from GPS_Threading_new2 import GPS_Rx
 
-host = '192.168.50.138'      #This computer
+
+'''Setting ground station IP address'''
+host = '192.168.50.138'      
 # host = '192.168.50.202'
 port = 1883
 
-topic = 'UWB' #receive data from rpi
-topic_2 = 'Anc_switch'    #send switch to anchor0
-topic_3 = 'localization_data'
+
+'''Define MQTT topic name
+topic: receive data from rpi
+topic_2: send switch command to anchor0
+topic_4 = feather lora power reset
+topic_5: rpi mac address
+'''
+topic = 'UWB' 
+topic_2 = 'Anc_switch'    
 topic_4 = 'power_reset'
 topic_5 = 'mac'
+
+'''Define the file name of experiment raw data and record experiment time'''
 string_time = datetime.now().strftime("%H_%M_%S")
 calibrate_data_filename = 'calibrate_data_' + string_time +'.txt'
 offline_data_filename = 'offline_data_' + string_time +'.txt'
 
+'''
+Define some queue or list
+switch_ls: 1o/2o/3o mean device 1/2/3 measure done can change device type from tag to anchor, and will send by MQTT topic_2.
+'''
 tag_pos_data = collections.deque(maxlen=10)
-dis_array_data = collections.deque(maxlen=10)
+dis_array_data = collections.deque(maxlen=10)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
 mqtt_data = collections.deque(maxlen=10)
 switch_ls = ['1o', '2o', '3o']
 d01, d02, d03, d12, d13, d23 = [], [], [], [], [], []
 D0_ls, D1_ls, D2_ls = [],[],[]
 
+'''Define some boolean '''
 localization = False
 calibration_dist = None
 
 new_data = threading.Event()
 
-def on_message(client, userdata, msg):       # Get UWB data via MQTT from RPI4
+'''Get UWB data via MQTT from RPI4 '''
+def on_message(client, userdata, msg):       
     data = msg.payload.decode('utf-8')
     if  (msg.topic == topic ):
         recev = data.split(' ')
@@ -51,7 +66,7 @@ def on_message(client, userdata, msg):       # Get UWB data via MQTT from RPI4
         dis_array_data.append(UWB_ser_data)
         new_data.set()
 
-
+'''Turn MQTT threading for get UWB dis data and send command to change UWB state(anchor/tag)'''
 client = mqtt.Client()
 client.connect(host, 1883, 60)
 client.subscribe(topic)
@@ -63,8 +78,15 @@ client.loop_start()
 
 while True:
     choise = int(input('If Calibrate UWB--> input 0,If anchor distance measure input 1: , start localization 2: '))
-    
+    '''
+    if choise option 0 and 1, measure_done(boolean) will be False.
+    Before choise 2(localization), all UWB must in anchor state, means that option 1 should be executed before option 2, option 1 will change UWB to anchor state at final.
+    '''
     if (choise == 0 ):
+        ''' 
+        Calibrate UWB hardware measure distance error .
+        gt_dis0/1/2/3/4/5 total six distance need to measure by laser sensor, input unit is mm.
+        '''
         m = int(input('Input measure times: '))
         anchor_offset_high = round(float(input('Input anchor height(meters): ')), 1)
 
@@ -76,6 +98,7 @@ while True:
         gt_dis5 = int(input('Input dis23(mm): '))
         gt_dis = np.array([gt_dis0, gt_dis1, gt_dis2, gt_dis3, gt_dis4, gt_dis5])
 
+        '''Feather lora reset UWB type to tag'''
         client.publish(topic_4, json.dumps('low'))
         time.sleep(1)
         client.publish(topic_4, json.dumps('high'))
@@ -86,8 +109,11 @@ while True:
         break
 
     elif(choise == 1):
+        ''' Auto measure anchor position'''
         m = int(input('Input measure times: '))
         anchor_offset_high = round(float(input('Input anchor height(meters): ')), 1)
+
+        '''Feather lora reset UWB type to tag'''
         client.publish(topic_4, json.dumps('low'))
         time.sleep(1)
         client.publish(topic_4, json.dumps('high'))
@@ -97,6 +123,7 @@ while True:
         break
 
     elif(choise == 2):
+        '''Localization '''
         print('start localization')
         localization = True
         measure_done = True
@@ -115,7 +142,13 @@ print('Clear dis array queue')
 dis_array_data.clear()
 new_data.clear()
 
-# parse UWB six distance data and send UWB switching Tag to Anchor command
+''' 
+    Function of calibrate UWB hardware error and function of auto measure anchor position will use this part to get six distance between four UWB device.
+    State 1: 1A3T (measure d01, d02, d03, after measure will send '1o' via MQTT)
+    State 2: 2A2T (measure d12, d13, after measure will send '2o' via MQTT)
+    State 3: 3A1T (measure d23, after measure will send '3o' via MQTT)
+    State 4: 4A   (localization state.Check all UWB have change to anchor,if all UWB in anchor state will output mean of six distance . )  
+'''
 while not measure_done:
     if not new_data.wait(timeout=30.):
         print('new_data.wait(timeout=30.)')
@@ -127,7 +160,8 @@ while not measure_done:
         continue
 
     dis0, dis1, dis2, dis3, tag = UWB_data[0], UWB_data[1], UWB_data[2], UWB_data[3], UWB_data[4]
-    if( dis0!=0 and dis1 == 0 and dis2 == 0 and dis3 == 0):
+    
+    if( dis0!=0 and dis1 == 0 and dis2 == 0 and dis3 == 0): #State 1
         if(tag == 1 and len(d01) < m):
             print('dis[01]: ', dis0)
             d01.append(dis0)
@@ -146,7 +180,8 @@ while not measure_done:
         elif(len(D0_ls) >= 1):
             client.publish(topic_2, json.dumps(switch_ls[0]))
             print('sent switch 1o')
-    elif(dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):
+    
+    elif(dis0!= 0 and dis1!= 0 and dis2 == 0 and dis3 == 0):    #State 2
         if(tag ==2 and len(d12)< m ):
             print('dis[12]: ', dis1)
             d12.append(dis1)
@@ -162,7 +197,7 @@ while not measure_done:
         elif(len(D1_ls)>=1):
             client.publish(topic_2, json.dumps(switch_ls[1]))
             print('sent switch 2o')            
-    elif(dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0):
+    elif(dis0!= 0 and dis1!= 0  and dis2 != 0 and dis3 == 0):   #State 3
         if(tag ==3 and len(d23)< m ):
             print('dis[23]: ', dis2)
             d23.append(dis2)
@@ -175,7 +210,7 @@ while not measure_done:
             client.publish(topic_2, json.dumps(switch_ls[2]))  
             print('sent switch 3o')
                                         
-    elif(dis0 != 0 and dis1 != 0 and dis2 != 0 and dis3 != 0 ): #If all UWB have switch to anchor 
+    elif(dis0 != 0 and dis1 != 0 and dis2 != 0 and dis3 != 0 ): #State 4, if all UWB have switch to anchor 
         print('All HPP device have change to Anchor!')
         dis0_data, dis1_data, dis2_data = np.load('UWB_dis_1state.npz'), np.load('UWB_dis_2state.npz'), np.load('UWB_dis_3state.npz')
         D0, D1, D2 = dis0_data['dis_1state'], dis1_data['dis_2state'], dis2_data['dis_3state']
@@ -184,7 +219,9 @@ while not measure_done:
         print('dis_arr_mean:　', dis_arr_mean)
         measure_done = True
 
-
+'''
+This part is for calibrate UWB hardware error.
+'''
 if calibration_dist is not None:
     err_array = cal_error(dis_arr_mean, calibration_dist)
     print('UWB err_array: ', err_array)
@@ -196,6 +233,9 @@ if calibration_dist is not None:
     print('calibration done.')
     exit(0)    
 
+'''
+This part is for auto measure anchor position.
+'''
 if not localization:
     print('Start auto measure anchor position !')                                
     err_data = np.load('UWB_cali_data.npz')
@@ -203,17 +243,17 @@ if not localization:
     dis_error = np.array([U_er[0]+U_er[1],U_er[0]+U_er[2],U_er[0]+U_er[3],U_er[1]+U_er[2],U_er[1]+U_er[3],U_er[2]+U_er[3]])
     print('dis_error: ', dis_error)
     new_dis = np.around((dis_arr_mean - dis_error)/1000, 2)
-    for _ in range(10):
-        print('new_dis: ', new_dis)
+    # for _ in range(10):
+    #     print('new_dis: ', new_dis)
     anc_pos = cal_Anc_pos(new_dis, anchor_offset_high)
     np.savez('UWB_Anc_pos.npz', anc_pos = anc_pos)
-    for _ in range(10):
-        print('UWB position: ', anc_pos)
+    # for _ in range(10):
+    #     print('UWB position: ', anc_pos)
     filename = str(string_time)
     with open('anchor_measure_dis_data_' + filename +'.txt', 'a') as fout:
         json.dump({'time': string_time, 'new_dis': new_dis.tolist(), 'anc_pos': anc_pos}, fout)
 
-    
+'''---------------Unscent kalman filter parameter-----------'''    
 np.set_printoptions(suppress=True) 
 f = KalmanFilter (dim_x=2, dim_z=1)
 f.F = np.array([[1.,1.],[0.,1.]])
@@ -222,7 +262,7 @@ f.P = np.array([[1.,    0.], [   0., 1.] ])
 f.R = np.array([[0.1**2]])    # uwb dis std **2
 saver_kf = Saver(f)
 last_data_time = time.time()
-#-------------------- animation parameter ---------------------
+'''-------------------- animation parameter ---------------------'''
 fig = plt.figure()
 ax = fig.add_subplot(1,2,1, projection='3d')
 ax2 = fig.add_subplot(2, 2, 2)
@@ -232,28 +272,33 @@ err_data = np.load('UWB_cali_data.npz')
 U_er = err_data['error']
 anc_dis_error = np.array([U_er[0], U_er[1], U_er[2], U_er[3]])
 
+
+'''Cause of python animation main loop is in threading, so the main code of HPP localization will put in animation function'''
 def animate(i):
     try:
         UWB_data = dis_array_data.popleft()
     except IndexError:
         return
-
+    '''Only got four distance will be calculated'''
     if(UWB_data[0] !=0 and UWB_data[1] !=0 and UWB_data[2] !=0 and UWB_data[3] !=0 ):
         print('------------------------------------')
         dis_array = np.asarray([UWB_data[0], UWB_data[1], UWB_data[2], UWB_data[3]]) / 1000
         global anc_dis_error
         dis_er = np.around((np.asarray(anc_dis_error) / 1000), 2) + 0.3
         # print('anc_dis_error: ', dis_er )
+
+        '''Remove UWB hardware measure distance error'''
         calibrate_dis_array = dis_array - dis_er
         origin_tag_pos = costfun_method(calibrate_dis_array, anc_pos)
         origin_tag_pos = np.around(origin_tag_pos, 2)
 
+
         global last_data_time
-        # print('last_data_time: ', last_data_time)
         now_time = time.time()
         dt = now_time - last_data_time
         last_data_time = now_time
 
+        '''Uncent kalman filter(No use )'''
         # dt = 0.1
         f.x = np.array([origin_tag_pos[2], 0], dtype=np.float)    #  position,velocity
         f.F = np.array([[1, dt], [0, 1]], dtype=np.float)
@@ -274,6 +319,7 @@ def animate(i):
         # print('origin_tag_pos: ', origin_tag_pos)
         # print('predict_tag_pos: ', predict_tag_pos)
 
+        '''Plot localization in animation'''
         ax.clear()
         ax2.clear()
         ax3.clear()
