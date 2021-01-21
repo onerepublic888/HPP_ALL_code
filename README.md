@@ -4,5 +4,5 @@
 ### Hardware Setup
 ![image](HPP_HW.PNG)
 
-### F
+### Flow chart
 ![image](HPP.PNG)
